@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mesh Forge — 2D to Game-Ready 3D</title>
+<meta name="description" content="Convert a 2D image into a 3D model, then unwrap, repair, light, texture, rig, animate, jiggle and slice it — all in the browser.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.185.1/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">◈</span>
+    <span class="brand-name">MESH FORGE</span>
+  </div>
+  <div class="brand-subtitle">2D image → game-ready 3D model</div>
+</header>
+
+<main>
+  <!-- Persistent 3D viewport with HUD-style readout -->
+  <section class="viewport-panel" aria-label="3D model viewer">
+    <div class="viewport-frame">
+      <div class="corner corner-tl"></div>
+      <div class="corner corner-tr"></div>
+      <div class="corner corner-bl"></div>
+      <div class="corner corner-br"></div>
+      <div id="viewer-canvas-wrap"><canvas id="viewer-canvas"></canvas></div>
+      <div id="empty-state" class="empty-state">
+        <div class="empty-icon">◇</div>
+        <div>No model yet</div>
+        <div class="empty-sub">Start below — upload an image or a 3D model</div>
+      </div>
+      <div id="anim-controls" class="anim-controls hidden">
+        <button id="anim-play-btn" class="icon-btn" title="Play/Pause">▶</button>
+        <select id="anim-clip-select" aria-label="Animation clip"></select>
+      </div>
+    </div>
+    <div class="hud-strip" id="hud-strip">
+      <span class="hud-item" id="hud-verts">verts —</span>
+      <span class="hud-item" id="hud-tris">tris —</span>
+      <span class="hud-item" id="hud-uv">UV —</span>
+      <span class="hud-item" id="hud-skeleton">rig —</span>
+      <span class="hud-item" id="hud-anim">anim —</span>
+      <span class="hud-item" id="hud-parts">parts —</span>
+    </div>
+  </section>
+
+  <div id="toast" class="toast hidden" role="status"></div>
+
+  <section class="cards-section">
+    <h2 class="section-label">Start</h2>
+    <div class="card-grid" id="start-grid"></div>
+  </section>
+
+  <section class="cards-section">
+    <h2 class="section-label">Tools</h2>
+    <div class="card-grid" id="tools-grid"></div>
+  </section>
+
+  <div style="height: 90px"></div> <!-- spacer so bottom action bar never covers last card -->
+</main>
+
+<!-- Bottom sheet: dynamically filled by whichever tool is active -->
+<div id="sheet-backdrop" class="sheet-backdrop hidden"></div>
+<div id="sheet" class="sheet" aria-hidden="true">
+  <div class="sheet-handle"></div>
+  <div class="sheet-header">
+    <h3 id="sheet-title">Tool</h3>
+    <button id="sheet-close" class="icon-btn" aria-label="Close">✕</button>
+  </div>
+  <div id="sheet-body" class="sheet-body"></div>
+</div>
+
+<!-- Persistent bottom action bar -->
+<nav class="action-bar">
+  <button id="btn-undo" class="action-btn" disabled>
+    <span class="action-icon">↩</span><span>Back</span>
+  </button>
+  <button id="btn-save" class="action-btn action-btn-primary" disabled>
+    <span class="action-icon">⬇</span><span>Save</span>
+  </button>
+  <button id="btn-reset" class="action-btn action-btn-danger" disabled>
+    <span class="action-icon">⟲</span><span>Reset</span>
+  </button>
+</nav>
+
+<input type="file" id="file-input-image" accept="image/*" class="hidden-input">
+<input type="file" id="file-input-model" accept=".glb,.gltf,.obj" class="hidden-input">
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
