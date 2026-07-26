@@ -182,35 +182,21 @@ main { position: relative; z-index: 1; max-width: 720px; margin: 0 auto; padding
 .card-disabled .card-icon { color: var(--muted); }
 .card-requirement { font-size: 10.5px; color: var(--amber); margin-top: auto; }
 
-/* ---------- Bottom sheet ---------- */
-.sheet-backdrop {
-  position: fixed; inset: 0; background: rgba(5,8,14,0.6);
-  z-index: 40; backdrop-filter: blur(2px);
-}
-.sheet {
-  position: fixed; left: 0; right: 0; bottom: 0;
-  max-height: min(82vh, 720px);
+/* ---------- Active tool panel (inline, not an overlay) ---------- */
+.tool-panel {
   background: var(--panel);
-  border-top: 1px solid var(--line);
-  border-radius: 18px 18px 0 0;
-  z-index: 50;
-  transform: translateY(102%);
-  transition: transform 0.28s cubic-bezier(.32,.72,0,1);
-  display: flex; flex-direction: column;
-  padding-bottom: calc(14px + var(--safe-bottom));
-  box-shadow: 0 -12px 40px rgba(0,0,0,0.5);
+  border: 1px solid var(--cyan-dim);
+  border-radius: var(--radius);
+  margin-bottom: 22px;
+  animation: panel-in 0.18s ease;
 }
-.sheet.open { transform: translateY(0); }
-.sheet-handle {
-  width: 40px; height: 4px; background: var(--line); border-radius: 4px;
-  margin: 10px auto 4px;
-}
-.sheet-header {
+@keyframes panel-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+.tool-panel-header {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 6px 18px 10px; border-bottom: 1px solid var(--line);
+  padding: 12px 16px; border-bottom: 1px solid var(--line);
 }
-.sheet-header h3 { margin: 0; font-family: var(--font-display); font-size: 15px; }
-.sheet-body { padding: 16px 18px; overflow-y: auto; }
+.tool-panel-header h3 { margin: 0; font-family: var(--font-display); font-size: 15px; }
+.tool-panel-body { padding: 16px; }
 
 .icon-btn {
   background: var(--panel-raised); border: 1px solid var(--line);
@@ -219,7 +205,7 @@ main { position: relative; z-index: 1; max-width: 720px; margin: 0 auto; padding
   font-size: 14px;
 }
 
-/* ---------- Form controls (used inside sheet by tool modules) ---------- */
+/* ---------- Form controls (used inside the tool panel by tool modules) ---------- */
 .field { margin-bottom: 16px; }
 .field label {
   display: flex; justify-content: space-between; gap: 8px;
@@ -250,8 +236,21 @@ main { position: relative; z-index: 1; max-width: 720px; margin: 0 auto; padding
 
 .progress-track {
   height: 6px; background: var(--panel-raised); border-radius: 4px; overflow: hidden; margin: 10px 0;
+  position: relative;
 }
 .progress-fill { height: 100%; background: var(--cyan); width: 0%; transition: width 0.15s ease; }
+.progress-fill-indeterminate {
+  position: absolute; top: 0; bottom: 0; width: 40%; border-radius: 4px;
+  background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+  animation: progress-slide 1.2s ease-in-out infinite;
+}
+@keyframes progress-slide {
+  0% { left: -40%; }
+  100% { left: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .progress-fill-indeterminate { animation: none; left: 0; width: 100%; opacity: 0.5; }
+}
 
 .bone-list { max-height: 220px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; margin-bottom: 14px; }
 .bone-row { display: flex; align-items: center; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 13px; }

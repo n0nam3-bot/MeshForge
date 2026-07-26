@@ -73,8 +73,15 @@ Once all 14 files are committed:
 - **Tools** section: the other 8 steps. Cards are grayed out until their
   prerequisite exists (e.g. Animation needs a skeleton first) — tap a grayed
   card to see why.
-- Every tool opens as a bottom panel. Adjust its options, tap the primary
-  button to preview, then **Apply** to commit it as the new current model.
+- Every tool opens as a panel directly on the page, right below the viewer -
+  not a popup or overlay, so you can see the model update live while you
+  adjust settings. Tapping a different card swaps to that tool; tapping the
+  same (open) card again closes it. Adjust options, tap the primary button
+  to preview, then **Apply** to commit it as the new current model.
+- While AI generation is running (Image → 3D), you'll see an elapsed-time
+  counter and an animated progress bar - free-tier queue times vary, so
+  "still working" is clearly distinguished from "stuck." A **Cancel** button
+  lets you give up and try something else without waiting it out.
 - **Back** (bottom bar) steps back through your history one action at a time.
   Doing something new after stepping back discards whatever was ahead of it —
   standard undo-tree behavior.

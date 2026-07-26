@@ -311,14 +311,19 @@ function renderCards() {
 }
 
 /* =========================================================================
-   SHEET (bottom panel that hosts each tool's own UI)
+   TOOL PANEL (inline section that hosts each tool's own UI - not an overlay)
    ========================================================================= */
-const sheetEl = document.getElementById('sheet');
-const sheetBackdrop = document.getElementById('sheet-backdrop');
+const panelEl = document.getElementById('tool-panel');
 const sheetTitleEl = document.getElementById('sheet-title');
 const sheetBodyEl = document.getElementById('sheet-body');
+let currentOpenToolId = null;
+let activeCleanup = null; // whatever the currently-open tool's buildPanel() returned, if anything
 
 function openToolPanel(tool) {
+  const reopeningSame = currentOpenToolId === tool.meta.id;
+  closeSheetImmediate(); // always tear down whatever was open first (calls its cleanup, if any)
+  if (reopeningSame) { return; } // tapping the open card again just closes it
+
   const entry = currentEntry();
   const sourceGroup = entry?.group ?? null;
   const workingCopy = sourceGroup ? cloneModel(sourceGroup) : null;
@@ -331,7 +336,7 @@ function openToolPanel(tool) {
     model: workingCopy,
     animations: sourceAnimations,
     capabilities: getCapabilities(sourceGroup, sourceAnimations),
-    viewport: { camera, renderer, controls }, // for tools that need direct pointer/raycast access (currently just texture-paint)
+    viewport: { camera, renderer, controls }, // for tools that need direct pointer/raycast access (texture-paint, bone dragging)
     preview: (group, animations = []) => {
       activePreviewGroup = group;
       displayGroup(group, animations);
@@ -344,18 +349,24 @@ function openToolPanel(tool) {
     commitStep(finalGroup, label, newAnimations);
   };
 
-  tool.buildPanel(sheetBodyEl, ctx, apply);
+  // buildPanel may optionally return a cleanup function (event listeners to
+  // remove, viewport handles to dispose, camera controls to re-enable) -
+  // storing it here means it reliably runs no matter HOW the panel closes,
+  // rather than only when a specific button is clicked.
+  activeCleanup = tool.buildPanel(sheetBodyEl, ctx, apply) || null;
 
-  sheetEl.classList.add('open');
-  sheetEl.setAttribute('aria-hidden', 'false');
-  sheetBackdrop.classList.remove('hidden');
+  currentOpenToolId = tool.meta.id;
+  panelEl.classList.remove('hidden');
+  panelEl.setAttribute('aria-hidden', 'false');
+  panelEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function closeSheetImmediate() {
-  sheetEl.classList.remove('open');
-  sheetEl.setAttribute('aria-hidden', 'true');
-  sheetBackdrop.classList.add('hidden');
-  controls.enabled = true; // defensive: texture-paint temporarily disables this while a stroke is active
+  if (activeCleanup) { activeCleanup(); activeCleanup = null; }
+  panelEl.classList.add('hidden');
+  panelEl.setAttribute('aria-hidden', 'true');
+  currentOpenToolId = null;
+  controls.enabled = true; // defensive fallback even if a tool's own cleanup didn't run
   if (activePreviewGroup) {
     activePreviewGroup = null;
     const entry = currentEntry();
@@ -363,7 +374,6 @@ function closeSheetImmediate() {
   }
 }
 document.getElementById('sheet-close').addEventListener('click', closeSheetImmediate);
-sheetBackdrop.addEventListener('click', closeSheetImmediate);
 
 /* =========================================================================
    SAVE / EXPORT

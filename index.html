@@ -58,6 +58,16 @@
     </div>
   </section>
 
+  <!-- Active tool panel: inline, appears directly below the viewport - no
+       overlay/backdrop, just a normal content block in the page flow -->
+  <section id="tool-panel" class="tool-panel hidden" aria-live="polite">
+    <div class="tool-panel-header">
+      <h3 id="sheet-title">Tool</h3>
+      <button id="sheet-close" class="icon-btn" aria-label="Close">✕</button>
+    </div>
+    <div id="sheet-body" class="tool-panel-body"></div>
+  </section>
+
   <div id="toast" class="toast hidden" role="status"></div>
 
   <section class="cards-section">
@@ -72,17 +82,6 @@
 
   <div style="height: 90px"></div> <!-- spacer so bottom action bar never covers last card -->
 </main>
-
-<!-- Bottom sheet: dynamically filled by whichever tool is active -->
-<div id="sheet-backdrop" class="sheet-backdrop hidden"></div>
-<div id="sheet" class="sheet" aria-hidden="true">
-  <div class="sheet-handle"></div>
-  <div class="sheet-header">
-    <h3 id="sheet-title">Tool</h3>
-    <button id="sheet-close" class="icon-btn" aria-label="Close">✕</button>
-  </div>
-  <div id="sheet-body" class="sheet-body"></div>
-</div>
 
 <!-- Persistent bottom action bar -->
 <nav class="action-bar">
