@@ -26,10 +26,13 @@ tools/rig.js
 tools/animation.js
 tools/jiggle.js
 tools/slice.js
+tools/_boneDrag.js
 README.md
 ```
 
-13 files total. `tools/` is the only subfolder.
+14 files total. `tools/` is the only subfolder. `_boneDrag.js` is a shared
+helper used by Jiggle and Animation (bone picking/dragging in the viewport) -
+it isn't a tool card itself, just a file the other two import from.
 
 ## Uploading from your phone
 
@@ -42,7 +45,7 @@ quirk of mobile file uploads:
    the filename automatically creates the `tools` folder for you.
 3. Paste that file's contents into the big text box below.
 4. Scroll down, tap **Commit changes**.
-5. Repeat for all 13 files.
+5. Repeat for all 14 files.
 
 If you'd rather upload the files as files (e.g. after downloading them from
 this chat to your phone's Files app): use **Add file → Upload files** for the
@@ -54,7 +57,7 @@ structure in one go.
 
 ## Turning on GitHub Pages
 
-Once all 13 files are committed:
+Once all 14 files are committed:
 
 1. Repo → **Settings → Pages**.
 2. Under "Build and deployment", set **Source** to "Deploy from a branch".
@@ -82,30 +85,39 @@ Once all 13 files are committed:
 
 ## How each tool actually works (and where it's simplified)
 
-I researched existing free/open-source repos for each step first (linked
-below for reference), then built compact from-scratch implementations of the
-same underlying techniques rather than gluing those repos together directly —
-several use Vue/React/WASM build pipelines that can't run as static
-paste-and-go files, which was the hard constraint here. Everything below was
-individually tested against hand-built and edge-case geometry (a concave
-L-shape, an open cylinder with floating-point seam vertices, etc.) before
-being written into these files — not just "looks right in one preview."
-
 | Tool | Technique | Honest limitation |
 |---|---|---|
-| **Image → 3D** | Alpha/chroma-key masking → distance-transform height field → watertight extruded mesh with stitched rim (inspired by [harry7557558/img23d](https://github.com/harry7557558/img23d)) | Grid-based, not a true FEM solve — works best on clear, high-contrast subjects like logos or photos with the background removed |
+| **Image → 3D** | Real AI generation via [stabilityai/TripoSR](https://huggingface.co/spaces/stabilityai/TripoSR) (a genuine neural image-to-3D model), called live from your browser via Hugging Face's free public API - no server of your own, no install. Falls back to a local distance-transform "inflate" if you're offline or the free service is briefly busy/down. | The AI path depends on a live third-party service - free, but can be slow, rate-limited, or occasionally down. See the honesty note in `tools/imageTo3D.js` for specifics. The offline fallback is a simple relief-extrusion, not true 3D inference. |
 | **UV Unwrap** | 6-direction box projection (inspired by [xatlas](https://github.com/repalash/xatlas-three)) | Can stretch on curved/organic surfaces; no atlas packing |
-| **Add Mesh (Repair)** | Vertex welding (three.js's own `mergeVertices`), degenerate-triangle removal, boundary-loop hole filling | Hole filling uses simple fan triangulation — works well on small, roughly-planar holes, not complex ones |
-| **Illumination** | Curvature/cavity-based AO approximation baked to vertex colors | Not true raycasted occlusion (skipped for mobile performance/dependency reasons) — a real approximation, not "AI lighting" |
-| **Texture** | Direct canvas painting via viewport raycasting (inspired by [Aphene/texture-painter](https://github.com/Aphene/texture-painter)) | Brush tool only — no layers/undo within the canvas itself |
-| **Rig (Bones)** | Bounding-box-scaled skeleton template (Humanoid or Simple) + inverse-square distance-to-nearest-bone-segment skin weights | Heuristic auto-rig, not ML-based — works best on roughly upright, humanoid-proportioned shapes |
-| **Animation** | Procedural Idle/Walk/Wave clips built as real `THREE.AnimationClip`/keyframe data | Not motion-captured — simple sine-driven poses, but genuinely exports and plays back correctly elsewhere |
-| **Jiggle** | Per-bone damped spring physics driven by the bone's own world-space velocity (inspired by [threeZboingZboing](https://github.com/WebAR-rocks/threeZboingZboing)) | Simplified single-axis-pair spring, not a full physically-based solver |
+| **Add Mesh (Repair)** | Vertex welding (three.js's own `mergeVertices`), degenerate-triangle removal, boundary-loop hole filling | Hole filling uses simple fan triangulation - works well on small, roughly-planar holes, not complex ones |
+| **Illumination** | Curvature/cavity-based AO approximation baked to vertex colors | Not true raycasted occlusion (skipped for mobile performance/dependency reasons) - a real approximation, not "AI lighting" |
+| **Texture** | Direct canvas painting via viewport raycasting - drag directly on the model to paint (inspired by [Aphene/texture-painter](https://github.com/Aphene/texture-painter)) | Brush tool only - no layers/undo within the canvas itself. Orbit/zoom is disabled while this panel is open (painting needs the drag gesture) - close the panel to reposition the camera |
+| **Rig (Bones)** | Bounding-box-scaled skeleton template (Humanoid or Simple) + inverse-square distance-to-nearest-bone-segment skin weights | Heuristic auto-rig, not ML-based - works best on roughly upright, humanoid-proportioned shapes |
+| **Animation** | Quick procedural Idle/Walk/Wave presets, **or** drag any bone's handle directly in the viewport to pose it and capture keyframes - both build real `THREE.AnimationClip`/keyframe data | Custom posing captures full-body snapshots per keyframe (not per-bone tracks), and only rotation is posable by drag (position animation - like a walk cycle's hip bob - is preset-only) |
+| **Jiggle** | Per-bone damped spring physics driven by the bone's own world-space velocity, **plus** drag any bone's handle to flick it and watch the spring react live (inspired by [threeZboingZboing](https://github.com/WebAR-rocks/threeZboingZboing)) | Simplified single-axis-pair spring, not a full physically-based solver. Orbit/zoom is disabled while this panel is open, same trade-off as Texture |
 | **Slice / Defrag** | Connected-components split (union-find over position-keyed triangle adjacency) + arbitrary-plane cutting with cap-hole cleanup | Slicing a rigged model drops the rig (skin weights don't carry over automatically) |
 
 GLB/GLTF is the common thread — every tool reads and writes through that
 format, via three.js's official `GLTFLoader`/`GLTFExporter`. Baked animation
 clips and any custom (non-default) bone rig travel with the exported file.
+
+### Posing and testing directly on the model
+
+Jiggle and Animation both put small cyan dots (bone handles) on the model in
+the viewport - drag one to rotate that bone directly:
+
+- **In Animation**, dragging poses the bone immediately (what you see is what
+  gets captured). Set a time, tap **Capture Pose**, move things again, capture
+  another keyframe, then **Build Clip** to interpolate between them.
+- **In Jiggle**, dragging flicks the bone and hands off to the spring physics
+  on release, so you can feel out stiffness/damping interactively instead of
+  just guessing from slider numbers.
+- Both panels disable camera orbiting while open, since the same drag
+  gesture is doing double duty for posing. Close the panel to look around,
+  then reopen it.
+
+**Texture** works the same drag-on-the-model way for painting - tap **Texture**,
+then draw directly on the viewport.
 
 ## If you want to level up a step later
 
@@ -119,6 +131,13 @@ you wire one in later if you want to go that route for a specific step.
 
 - "Back" is the in-app button, not your phone's hardware back button/gesture
   — the latter will just leave the page, same as on any other website.
+- Camera orbit/zoom is disabled while Texture, Jiggle, or Animation panels
+  are open, since dragging on the model does something else in each of
+  those. Close the panel to reposition the camera, then reopen it.
+- Image → 3D's AI option needs an internet connection and depends on a free
+  public Hugging Face Space staying up - it usually will, but if it's ever
+  slow, rate-limited, or briefly down, use the offline fallback in the same
+  panel instead.
 - Undo/redo history and all model data live in memory only — nothing is
   saved automatically. Use **Save** whenever you want to keep a result.
   Refreshing the page always starts a clean session.
