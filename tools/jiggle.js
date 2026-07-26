@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { createBoneInteraction } from './_boneDrag.js';
 
 export const meta = {
   id: 'jiggle',
@@ -90,7 +91,7 @@ export function buildPanel(container, ctx, apply) {
       <label>Amount <span class="val" id="jg-amount-val">1.00</span></label>
       <input type="range" id="jg-amount" min="0" max="3" step="0.1" value="1">
     </div>
-    <p class="hint">Preview updates live in the viewport above - try orbiting the camera or waiting for the walk/idle animation (if any) to see the motion.</p>
+    <p class="hint">Drag directly on a bone's handle (small dot) in the viewport above to flick it and watch the jiggle respond live - that's the fastest way to feel out stiffness/damping.</p>
     <div class="btn-row">
       <button type="button" class="btn btn-primary" id="jg-apply">Apply</button>
     </div>
@@ -132,10 +133,45 @@ export function buildPanel(container, ctx, apply) {
   livePreview();
   ctx.preview(ctx.model, ctx.animations);
 
+  // --- drag-to-test: route the drag through the SAME offset/velocity state
+  // stepJiggleBone() already reads each frame, rather than setting the
+  // bone's rotation directly - that way releasing the drag naturally springs
+  // back through the existing, already-validated physics instead of leaving
+  // a permanent pose change behind. ---
+  let interaction = null;
+  if (skeleton) {
+    interaction = createBoneInteraction(ctx, skeleton, {
+      onSelectBone: (bone) => {
+        const cb = listEl.querySelector(`input[data-bone="${CSS.escape(bone.name)}"]`);
+        if (cb && !cb.checked) { cb.checked = true; livePreview(); }
+      },
+      onDragBone: (bone, worldDeltaQuat, dx, dy) => {
+        // apply visually now (immediate feedback while dragging) ...
+        interaction.applyWorldSpaceDelta(bone, worldDeltaQuat);
+        // ... and keep the spring's own bookkeeping in sync, so once released,
+        // stepJiggleBone() continues smoothly FROM the dragged position and
+        // pulls it back toward rest, instead of jumping.
+        const ud = bone.userData;
+        if (!ud._jiggleOffset) ud._jiggleOffset = { x: 0, z: 0 };
+        if (!ud._jiggleVel) ud._jiggleVel = { x: 0, z: 0 };
+        const e = new THREE.Euler().setFromQuaternion(worldDeltaQuat);
+        ud._jiggleOffset.x = Math.max(-0.9, Math.min(0.9, ud._jiggleOffset.x + e.x));
+        ud._jiggleOffset.z = Math.max(-0.9, Math.min(0.9, ud._jiggleOffset.z + e.z));
+        ud._jiggleVel.x += dy * 0.4;
+        ud._jiggleVel.z += dx * 0.4;
+      },
+    });
+  }
+
   container.querySelector('#jg-apply').onclick = () => {
+    interaction?.dispose();
     const configs = currentConfig();
     ctx.model.userData.jiggleEnabled = configs.length > 0;
     ctx.model.userData.jiggleBones = configs;
     apply(ctx.model, 'Jiggle');
   };
+
+  const cleanup = () => interaction?.dispose();
+  document.getElementById('sheet-close').addEventListener('click', cleanup, { once: true });
+  document.getElementById('sheet-backdrop').addEventListener('click', cleanup, { once: true });
 }

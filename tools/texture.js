@@ -145,7 +145,6 @@ export function buildPanel(container, ctx, apply) {
 
   function onPointerDown(e) {
     painting = true;
-    controls.enabled = false;
     paintAt(e.clientX, e.clientY);
   }
   function onPointerMove(e) {
@@ -154,9 +153,14 @@ export function buildPanel(container, ctx, apply) {
   }
   function onPointerUp() {
     painting = false;
-    controls.enabled = true;
   }
 
+  // Disabled for the WHOLE panel session, not just reactively inside
+  // onPointerDown - OrbitControls' own pointerdown listener was registered
+  // back in app.js, before this panel ever opened, so it always runs before
+  // this file's handler could react to a fresh pointerdown and would have
+  // already started tracking a rotation drag by the time `enabled` flips.
+  controls.enabled = false;
   canvasEl.addEventListener('pointerdown', onPointerDown);
   canvasEl.addEventListener('pointermove', onPointerMove);
   window.addEventListener('pointerup', onPointerUp);
