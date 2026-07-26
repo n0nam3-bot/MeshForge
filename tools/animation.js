@@ -137,6 +137,7 @@ export function buildPanel(container, ctx, apply) {
   let presetClips = [];
   let customClips = [];
   const keyframes = [];
+  let cleanupFn = null;
 
   function allClips() { return [...presetClips, ...customClips]; }
   function refreshApplyState() {
@@ -208,15 +209,13 @@ export function buildPanel(container, ctx, apply) {
     const interaction = createBoneInteraction(ctx, skeleton, {
       onDragBone: (bone, worldDeltaQuat) => interaction.applyWorldSpaceDelta(bone, worldDeltaQuat),
     });
-    const cleanup = () => interaction.dispose();
-    document.getElementById('sheet-close').addEventListener('click', cleanup, { once: true });
-    document.getElementById('sheet-backdrop').addEventListener('click', cleanup, { once: true });
-
-    applyBtn.addEventListener('click', cleanup, { once: true });
+    cleanupFn = () => interaction.dispose();
   }
 
   applyBtn.onclick = () => {
     if (allClips().length === 0) return;
     apply(ctx.model, 'Animation', allClips());
   };
+
+  return cleanupFn;
 }

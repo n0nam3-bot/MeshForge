@@ -164,14 +164,11 @@ export function buildPanel(container, ctx, apply) {
   }
 
   container.querySelector('#jg-apply').onclick = () => {
-    interaction?.dispose();
     const configs = currentConfig();
     ctx.model.userData.jiggleEnabled = configs.length > 0;
     ctx.model.userData.jiggleBones = configs;
     apply(ctx.model, 'Jiggle');
   };
 
-  const cleanup = () => interaction?.dispose();
-  document.getElementById('sheet-close').addEventListener('click', cleanup, { once: true });
-  document.getElementById('sheet-backdrop').addEventListener('click', cleanup, { once: true });
+  return () => interaction?.dispose();
 }

@@ -172,13 +172,10 @@ export function buildPanel(container, ctx, apply) {
     window.removeEventListener('pointerup', onPointerUp);
     controls.enabled = true;
   };
-  const closeBtn = document.getElementById('sheet-close');
-  const backdrop = document.getElementById('sheet-backdrop');
-  closeBtn.addEventListener('click', cleanup, { once: true });
-  backdrop.addEventListener('click', cleanup, { once: true });
 
   container.querySelector('#tx-apply').onclick = () => {
-    cleanup();
     apply(ctx.model, 'Texture');
   };
+
+  return cleanup;
 }

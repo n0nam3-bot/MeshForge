@@ -192,8 +192,9 @@ export function buildPanel(container, ctx, apply) {
       <input type="range" id="i23-fgratio" min="0.5" max="1.0" step="0.05" value="0.85">
     </div>
     <button type="button" class="btn btn-primary" id="i23-ai-generate" disabled>Generate with AI (TripoSR, via Hugging Face)</button>
-    <div class="progress-track" id="i23-progress-track" style="display:none;"><div class="progress-fill" id="i23-progress-fill" style="width:40%;"></div></div>
+    <div class="progress-track" id="i23-progress-track" style="display:none;"><div class="progress-fill-indeterminate"></div></div>
     <div id="i23-ai-status" class="hint"></div>
+    <button type="button" class="btn btn-secondary" id="i23-ai-cancel" style="display:none;">Cancel</button>
     <p class="hint">Uses a free public Hugging Face model over the internet - needs a connection, and can be slow or briefly unavailable at busy times. If it doesn't work right now, use the offline option below instead.</p>
 
     <details style="margin-top:6px;">
@@ -258,28 +259,59 @@ export function buildPanel(container, ctx, apply) {
     }
   };
 
+  const cancelBtn = container.querySelector('#i23-ai-cancel');
+
   aiGenerateBtn.onclick = async () => {
     if (!sourceFile) return;
     aiGenerateBtn.disabled = true;
     progressTrack.style.display = 'block';
+    cancelBtn.style.display = 'block';
+
+    let cancelled = false;
+    cancelBtn.onclick = () => {
+      cancelled = true;
+      aiStatusEl.textContent = 'Cancelled. The request may still finish in the background, but its result will be ignored.';
+      finishUp();
+    };
+
+    const startTime = Date.now();
+    let baseMsg = 'Starting…';
+    const setMsg = (msg) => { baseMsg = msg; };
+    const timer = setInterval(() => {
+      const elapsed = Math.round((Date.now() - startTime) / 1000);
+      let text = `${baseMsg} (${elapsed}s elapsed)`;
+      if (elapsed > 45) text += ' — free-tier queue can take a while at busy times; still working.';
+      aiStatusEl.textContent = text;
+    }, 1000);
+
+    function finishUp() {
+      clearInterval(timer);
+      aiGenerateBtn.disabled = false;
+      progressTrack.style.display = 'none';
+      cancelBtn.style.display = 'none';
+    }
+
     try {
       const arrayBuffer = await generateWithAI(
         sourceFile,
         { removeBackground: removeBgCheckbox.checked, foregroundRatio: Number(fgRatioSlider.value), mcResolution: 256 },
-        (msg) => { aiStatusEl.textContent = msg; }
+        setMsg
       );
+      if (cancelled) return;
       const group = await loadGlbArrayBuffer(arrayBuffer);
+      if (cancelled) return;
       normalizeScale(group);
       pendingGroup = group;
       ctx.preview(group, []);
       aiStatusEl.textContent = 'Done! Tap "Use this model" below to continue, or generate again with different settings.';
       applyBtn.disabled = false;
     } catch (err) {
-      aiStatusEl.textContent = `AI generation failed: ${err?.message || err}. You can try again, or use the offline fallback below.`;
-      ctx.showToast('AI generation failed - see details in the panel', true);
+      if (!cancelled) {
+        aiStatusEl.textContent = `AI generation failed: ${err?.message || err}. You can try again, or use the offline fallback below.`;
+        ctx.showToast('AI generation failed - see details in the panel', true);
+      }
     } finally {
-      aiGenerateBtn.disabled = false;
-      progressTrack.style.display = 'none';
+      if (!cancelled) finishUp();
     }
   };
 
