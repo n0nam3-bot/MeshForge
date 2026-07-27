@@ -94,7 +94,7 @@ Once all 14 files are committed:
 
 | Tool | Technique | Honest limitation |
 |---|---|---|
-| **Image → 3D** | Real AI generation via [stabilityai/TripoSR](https://huggingface.co/spaces/stabilityai/TripoSR) (a genuine neural image-to-3D model), called live from your browser via Hugging Face's free public API - no server of your own, no install. Falls back to a local distance-transform "inflate" if you're offline or the free service is briefly busy/down. | The AI path depends on a live third-party service - free, but can be slow, rate-limited, or occasionally down. See the honesty note in `tools/imageTo3D.js` for specifics. The offline fallback is a simple relief-extrusion, not true 3D inference. |
+| **Image → 3D** | Real AI generation via [tencent/Hunyuan3D-2](https://huggingface.co/spaces/tencent/Hunyuan3D-2) (a genuine neural image-to-3D model that generates shape *and* texture in one pass), called live from your browser via Hugging Face's free public API - no server of your own, no install. A hard 135-second client-side timeout (built around the Space's own documented 90-second GPU budget) means a stuck/overloaded request fails clearly instead of hanging forever. Falls back to a local distance-transform "inflate" if you're offline, out of patience, or the free service is briefly busy/down. | The AI path depends on a live third-party service - free, but can be slow, rate-limited, or occasionally down. See the honesty note in `tools/imageTo3D.js` for specifics. The offline fallback is a simple relief-extrusion, not true 3D inference. |
 | **UV Unwrap** | 6-direction box projection (inspired by [xatlas](https://github.com/repalash/xatlas-three)) | Can stretch on curved/organic surfaces; no atlas packing |
 | **Add Mesh (Repair)** | Vertex welding (three.js's own `mergeVertices`), degenerate-triangle removal, boundary-loop hole filling | Hole filling uses simple fan triangulation - works well on small, roughly-planar holes, not complex ones |
 | **Illumination** | Curvature/cavity-based AO approximation baked to vertex colors | Not true raycasted occlusion (skipped for mobile performance/dependency reasons) - a real approximation, not "AI lighting" |
@@ -144,7 +144,9 @@ you wire one in later if you want to go that route for a specific step.
 - Image → 3D's AI option needs an internet connection and depends on a free
   public Hugging Face Space staying up - it usually will, but if it's ever
   slow, rate-limited, or briefly down, use the offline fallback in the same
-  panel instead.
+  panel instead. Generating both shape and texture typically takes 30-90
+  seconds; if it hasn't finished within ~135 seconds, it automatically times
+  out with a clear error rather than hanging indefinitely.
 - Undo/redo history and all model data live in memory only — nothing is
   saved automatically. Use **Save** whenever you want to keep a result.
   Refreshing the page always starts a clean session.
