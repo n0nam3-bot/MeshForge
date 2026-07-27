@@ -11,45 +11,73 @@ export const meta = {
 };
 
 /* =========================================================================
-   AI GENERATION - stabilityai/TripoSR, a real neural image-to-3D model,
-   called live from the browser via Hugging Face's official @gradio/client
-   library (loaded from a CDN, no install/build step, no server of your own -
-   the actual inference runs on Hugging Face's free-tier infrastructure).
+   AI GENERATION - tencent/Hunyuan3D-2, a real neural image-to-3D model that
+   also generates a full texture (not just a plain-colored mesh), called live
+   from the browser via Hugging Face's official @gradio/client library
+   (loaded from a CDN, no install/build step - inference runs on Hugging
+   Face's free-tier infrastructure, not your device or any server of yours).
 
-   HONESTY NOTE: unlike the rest of this app's algorithms, this integration
-   depends on a live third-party service I could not fully exercise end-to-
-   end from a sandboxed environment (no real browser, no access to
-   huggingface.co from the tool that validated everything else here). I
-   confirmed the Space is real, actively maintained by Stability AI, and
-   currently running, and based the endpoint names below on its actual
-   published source. If Hugging Face changes the Space's internals, this
-   may need a small update - the fallback below exists so the tool still
-   works either way, and the error message always names the exact problem.
+   HONESTY NOTE: this integration depends on a live third-party service I
+   could not fully exercise end-to-end from a sandboxed environment (no real
+   browser, no access to huggingface.co from the tool that validated
+   everything else in this app). I fetched the Space's actual published
+   gradio_app.py source to get the endpoint name and parameter order below,
+   which is the same research method that worked for confirming the Space is
+   real and current - but it's still a best-informed match, not something I
+   could click-test myself. If Hugging Face changes the Space's internals,
+   this may need a small update.
+
+   The one thing I DID get concretely from that source: generation_all is
+   decorated `@spaces.GPU(duration=90)`, meaning Hugging Face's own
+   infrastructure force-kills it past 90 seconds. HARD_TIMEOUT_MS below is
+   built around that documented number, specifically to prevent the failure
+   mode of a request hanging indefinitely with no way to tell it's dead -
+   which is what happened before this fix, with no automatic timeout at all.
    ========================================================================= */
-const SPACE_ID = 'stabilityai/TripoSR';
+const SPACE_ID = 'tencent/Hunyuan3D-2';
+const GPU_BUDGET_MS = 90 * 1000; // documented in the Space's own source
+const HARD_TIMEOUT_MS = GPU_BUDGET_MS + 45 * 1000; // + buffer for queueing/network/export
 
-async function generateWithAI(imageFile, { removeBackground, foregroundRatio, mcResolution }, onStatus) {
+async function generateWithAI(imageFile, { removeBackground }, onStatus) {
   onStatus('Loading Hugging Face client library…');
   const { Client } = await import('https://cdn.jsdelivr.net/npm/@gradio/client/dist/index.min.js');
 
   onStatus(`Connecting to ${SPACE_ID} on Hugging Face…`);
   const app = await Client.connect(SPACE_ID);
 
-  onStatus('Removing background / preprocessing…');
-  const preprocessResult = await app.predict('/preprocess', [imageFile, removeBackground, foregroundRatio]);
-  const processedImage = preprocessResult.data[0];
-  if (!processedImage) throw new Error('Preprocessing step returned no image.');
+  onStatus('Generating textured 3D mesh (shape + texture, ~1-2 minutes)…');
+  // Positional args match generation_all()'s exact parameter order in the
+  // Space's source: caption, image, 4x multi-view images (unused here),
+  // steps, guidance_scale, seed, octree_resolution, remove_background,
+  // num_chunks, randomize_seed. Kept on the lower end of steps/chunks to
+  // stay comfortably inside the 90s GPU budget above.
+  const result = await app.predict('/generation_all', [
+    null, imageFile, null, null, null, null,
+    15, 5.0, 1234, 256, removeBackground, 8000, false,
+  ]);
 
-  onStatus('Generating 3D mesh - this can take up to a minute on the free tier…');
-  const generateResult = await app.predict('/generate', [processedImage, mcResolution]);
-  const glbInfo = generateResult.data?.[1]; // [obj_file, glb_file]
+  const glbInfo = result.data?.[1]; // [white_mesh, textured_mesh, viewer_html, stats, seed] - index 1 is the textured GLB
   const glbUrl = glbInfo?.url || glbInfo?.path;
-  if (!glbUrl) throw new Error('The model finished but no GLB file came back.');
+  if (!glbUrl) throw new Error('The model finished but no textured GLB file came back.');
 
   onStatus('Downloading result…');
   const res = await fetch(glbUrl);
   if (!res.ok) throw new Error(`Could not download the generated model (HTTP ${res.status}).`);
   return res.arrayBuffer();
+}
+
+async function generateWithAITimed(imageFile, options, onStatus) {
+  let timeoutHandle;
+  const timeout = new Promise((_, reject) => {
+    timeoutHandle = setTimeout(() => {
+      reject(new Error(`No response after ${Math.round(HARD_TIMEOUT_MS / 1000)}s - the Space may be overloaded, asleep, or its API may have changed since this was written.`));
+    }, HARD_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([generateWithAI(imageFile, options, onStatus), timeout]);
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
 }
 
 async function loadGlbArrayBuffer(arrayBuffer) {
@@ -187,11 +215,7 @@ export function buildPanel(container, ctx, apply) {
     <img id="i23-preview" style="display:none;max-width:100%;border-radius:8px;margin-top:10px;border:1px solid var(--line);" />
 
     <div class="checkbox-row" style="margin-top:16px;"><input type="checkbox" id="i23-removebg" checked><label for="i23-removebg">Remove background automatically</label></div>
-    <div class="field">
-      <label>Foreground ratio <span class="val" id="i23-fgratio-val">0.85</span></label>
-      <input type="range" id="i23-fgratio" min="0.5" max="1.0" step="0.05" value="0.85">
-    </div>
-    <button type="button" class="btn btn-primary" id="i23-ai-generate" disabled>Generate with AI (TripoSR, via Hugging Face)</button>
+    <button type="button" class="btn btn-primary" id="i23-ai-generate" disabled>Generate with AI (Hunyuan3D-2, via Hugging Face)</button>
     <div class="progress-track" id="i23-progress-track" style="display:none;"><div class="progress-fill-indeterminate"></div></div>
     <div id="i23-ai-status" class="hint"></div>
     <button type="button" class="btn btn-secondary" id="i23-ai-cancel" style="display:none;">Cancel</button>
@@ -200,6 +224,11 @@ export function buildPanel(container, ctx, apply) {
     <details style="margin-top:6px;">
       <summary style="cursor:pointer;color:var(--muted);font-size:12.5px;">Offline fallback (no internet needed, lower quality)</summary>
       <div style="padding-top:10px;">
+        <div class="field">
+          <label>Background tolerance <span class="val" id="i23-tol-val">0.35</span></label>
+          <input type="range" id="i23-tol" min="0.05" max="0.8" step="0.05" value="0.35">
+          <div class="hint" style="margin:4px 0 0;">Only matters for flat-color backgrounds (no transparency). Higher = removes more.</div>
+        </div>
         <div class="field">
           <label>Detail (grid resolution) <span class="val" id="i23-res-val">112</span></label>
           <input type="range" id="i23-res" min="48" max="176" step="8" value="112">
@@ -221,10 +250,10 @@ export function buildPanel(container, ctx, apply) {
   const chooseBtn = container.querySelector('#i23-choose');
   const previewImg = container.querySelector('#i23-preview');
   const removeBgCheckbox = container.querySelector('#i23-removebg');
-  const fgRatioSlider = container.querySelector('#i23-fgratio');
   const aiGenerateBtn = container.querySelector('#i23-ai-generate');
   const aiStatusEl = container.querySelector('#i23-ai-status');
   const progressTrack = container.querySelector('#i23-progress-track');
+  const tolSlider = container.querySelector('#i23-tol');
   const resSlider = container.querySelector('#i23-res');
   const depthSlider = container.querySelector('#i23-depth');
   const localGenerateBtn = container.querySelector('#i23-local-generate');
@@ -232,7 +261,7 @@ export function buildPanel(container, ctx, apply) {
   const applyBtn = container.querySelector('#i23-apply');
   const input = document.getElementById('file-input-image');
 
-  fgRatioSlider.addEventListener('input', () => container.querySelector('#i23-fgratio-val').textContent = Number(fgRatioSlider.value).toFixed(2));
+  tolSlider.addEventListener('input', () => container.querySelector('#i23-tol-val').textContent = Number(tolSlider.value).toFixed(2));
   resSlider.addEventListener('input', () => container.querySelector('#i23-res-val').textContent = resSlider.value);
   depthSlider.addEventListener('input', () => container.querySelector('#i23-depth-val').textContent = Number(depthSlider.value).toFixed(2));
 
@@ -280,7 +309,7 @@ export function buildPanel(container, ctx, apply) {
     const timer = setInterval(() => {
       const elapsed = Math.round((Date.now() - startTime) / 1000);
       let text = `${baseMsg} (${elapsed}s elapsed)`;
-      if (elapsed > 45) text += ' — free-tier queue can take a while at busy times; still working.';
+      if (elapsed > 75) text += ' — generating both shape and texture can take a couple of minutes on the free tier; still working.';
       aiStatusEl.textContent = text;
     }, 1000);
 
@@ -292,9 +321,9 @@ export function buildPanel(container, ctx, apply) {
     }
 
     try {
-      const arrayBuffer = await generateWithAI(
+      const arrayBuffer = await generateWithAITimed(
         sourceFile,
-        { removeBackground: removeBgCheckbox.checked, foregroundRatio: Number(fgRatioSlider.value), mcResolution: 256 },
+        { removeBackground: removeBgCheckbox.checked },
         setMsg
       );
       if (cancelled) return;
@@ -333,7 +362,7 @@ export function buildPanel(container, ctx, apply) {
         c2d.drawImage(sourceBitmap, 0, 0, w, h);
         const imageData = c2d.getImageData(0, 0, w, h);
 
-        const mask = buildMask(imageData, 1 - Number(fgRatioSlider.value) + 0.15);
+        const mask = buildMask(imageData, Number(tolSlider.value));
         let fgCount = 0;
         for (let i = 0; i < mask.length; i++) fgCount += mask[i];
         if (fgCount < 9) {
