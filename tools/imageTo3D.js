@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 
 export const meta = {
   id: 'imageTo3D',
@@ -11,32 +12,32 @@ export const meta = {
 };
 
 /* =========================================================================
-   AI GENERATION - tencent/Hunyuan3D-2, a real neural image-to-3D model that
-   also generates a full texture (not just a plain-colored mesh), called live
-   from the browser via Hugging Face's official @gradio/client library
-   (loaded from a CDN, no install/build step - inference runs on Hugging
-   Face's free-tier infrastructure, not your device or any server of yours).
+   AI GENERATION - tencent/Hunyuan3D-2, a real neural image-to-3D model,
+   called live from the browser via Hugging Face's official @gradio/client
+   library (loaded from a CDN, no install/build step - inference runs on
+   Hugging Face's free-tier infrastructure, not your device or any server of
+   yours).
 
-   HONESTY NOTE: this integration depends on a live third-party service I
-   could not fully exercise end-to-end from a sandboxed environment (no real
-   browser, no access to huggingface.co from the tool that validated
-   everything else in this app). I fetched the Space's actual published
-   gradio_app.py source to get the endpoint name and parameter order below,
-   which is the same research method that worked for confirming the Space is
-   real and current - but it's still a best-informed match, not something I
-   could click-test myself. If Hugging Face changes the Space's internals,
-   this may need a small update.
+   GROUND-TRUTH NOTE: the endpoint/parameters below are copied directly from
+   this Space's own auto-generated "Use via API" documentation (retrieved
+   live from huggingface.co), not inferred from reading source code - this
+   is the reliable version, after two earlier attempts (TripoSR hanging,
+   then Hunyuan3D-2's /generation_all throwing a NameError) both turned out
+   to depend on details I couldn't verify without a live browser.
 
-   The one thing I DID get concretely from that source: generation_all is
-   decorated `@spaces.GPU(duration=90)`, meaning Hugging Face's own
-   infrastructure force-kills it past 90 seconds. HARD_TIMEOUT_MS below is
-   built around that documented number, specifically to prevent the failure
-   mode of a request hanging indefinitely with no way to tell it's dead -
-   which is what happened before this fix, with no automatic timeout at all.
+   Specifically: this Space's current instance has texture synthesis
+   DISABLED ("Texture Generation (Unavailable)" per its own UI - a missing-
+   dependency issue on Hugging Face's hosted copy, not something wrong with
+   any input). /generation_all tries to run that disabled texture step,
+   which is almost certainly what the NameError came from. /shape_generation
+   never touches it - confirmed by its own documented schema returning only
+   one mesh file, vs /generation_all's two (untextured + textured). So:
+   real AI-generated SHAPE, but no automatic texture from this path right
+   now - use the Texture tool afterward to paint it.
    ========================================================================= */
 const SPACE_ID = 'tencent/Hunyuan3D-2';
-const GPU_BUDGET_MS = 90 * 1000; // documented in the Space's own source
-const HARD_TIMEOUT_MS = GPU_BUDGET_MS + 45 * 1000; // + buffer for queueing/network/export
+const GPU_BUDGET_MS = 90 * 1000; // observed order-of-magnitude for this kind of ZeroGPU space; not documented for this exact endpoint, kept as a sane bound
+const HARD_TIMEOUT_MS = GPU_BUDGET_MS + 60 * 1000; // + buffer for queueing/network
 
 async function generateWithAI(imageFile, { removeBackground }, onStatus) {
   onStatus('Loading Hugging Face client library…');
@@ -45,25 +46,31 @@ async function generateWithAI(imageFile, { removeBackground }, onStatus) {
   onStatus(`Connecting to ${SPACE_ID} on Hugging Face…`);
   const app = await Client.connect(SPACE_ID);
 
-  onStatus('Generating textured 3D mesh (shape + texture, ~1-2 minutes)…');
-  // Positional args match generation_all()'s exact parameter order in the
-  // Space's source: caption, image, 4x multi-view images (unused here),
-  // steps, guidance_scale, seed, octree_resolution, remove_background,
-  // num_chunks, randomize_seed. Kept on the lower end of steps/chunks to
-  // stay comfortably inside the 90s GPU budget above.
-  const result = await app.predict('/generation_all', [
-    null, imageFile, null, null, null, null,
-    15, 5.0, 1234, 256, removeBackground, 8000, false,
+  onStatus('Generating 3D shape (texture synthesis is currently unavailable on this Space - shape only)…');
+  // Exact parameter names/order/defaults from the Space's own "Use via API"
+  // docs for /shape_generation - not a guess this time.
+  const result = await app.predict('/shape_generation', [
+    null,            // caption
+    imageFile,       // image
+    null, null, null, null, // mv_image_front/back/left/right (unused, single-image mode)
+    30,              // steps
+    5,               // guidance_scale
+    1234,            // seed
+    256,             // octree_resolution
+    removeBackground, // check_box_rembg
+    8000,            // num_chunks
+    false,           // randomize_seed (fixed seed above, so re-generating is reproducible)
   ]);
 
-  const glbInfo = result.data?.[1]; // [white_mesh, textured_mesh, viewer_html, stats, seed] - index 1 is the textured GLB
-  const glbUrl = glbInfo?.url || glbInfo?.path;
-  if (!glbUrl) throw new Error('The model finished but no textured GLB file came back.');
+  // /shape_generation returns [filepath, html, stats, seed] - just one mesh file
+  const fileInfo = result.data?.[0];
+  const fileUrl = fileInfo?.url || fileInfo?.path;
+  if (!fileUrl) throw new Error('The model finished but no mesh file came back.');
 
   onStatus('Downloading result…');
-  const res = await fetch(glbUrl);
+  const res = await fetch(fileUrl);
   if (!res.ok) throw new Error(`Could not download the generated model (HTTP ${res.status}).`);
-  return res.arrayBuffer();
+  return { arrayBuffer: await res.arrayBuffer(), url: fileUrl };
 }
 
 async function generateWithAITimed(imageFile, options, onStatus) {
@@ -80,10 +87,21 @@ async function generateWithAITimed(imageFile, options, onStatus) {
   }
 }
 
-async function loadGlbArrayBuffer(arrayBuffer) {
-  const gltf = await new Promise((resolve, reject) => new GLTFLoader().parse(arrayBuffer, '', resolve, reject));
+async function loadMeshFile(arrayBuffer, sourceUrl) {
+  const ext = (sourceUrl.split('?')[0].split('.').pop() || '').toLowerCase();
   const group = new THREE.Group();
-  group.add(gltf.scene);
+  if (ext === 'obj') {
+    const text = new TextDecoder().decode(arrayBuffer);
+    const obj = new OBJLoader().parse(text);
+    obj.traverse((o) => {
+      if (o.isMesh && !o.material?.map) o.material = new THREE.MeshStandardMaterial({ color: 0x9fb3c8, roughness: 0.6 });
+    });
+    group.add(obj);
+  } else {
+    // default to glb/gltf - the common export default for this kind of pipeline
+    const gltf = await new Promise((resolve, reject) => new GLTFLoader().parse(arrayBuffer, '', resolve, reject));
+    group.add(gltf.scene);
+  }
   return group;
 }
 
@@ -215,7 +233,8 @@ export function buildPanel(container, ctx, apply) {
     <img id="i23-preview" style="display:none;max-width:100%;border-radius:8px;margin-top:10px;border:1px solid var(--line);" />
 
     <div class="checkbox-row" style="margin-top:16px;"><input type="checkbox" id="i23-removebg" checked><label for="i23-removebg">Remove background automatically</label></div>
-    <button type="button" class="btn btn-primary" id="i23-ai-generate" disabled>Generate with AI (Hunyuan3D-2, via Hugging Face)</button>
+    <p class="hint">Generates real AI shape geometry. This Space's texture synthesis is currently unavailable, so the result comes back untextured - use the Texture tool afterward to paint it.</p>
+    <button type="button" class="btn btn-primary" id="i23-ai-generate" disabled>Generate Shape with AI (Hunyuan3D-2, via Hugging Face)</button>
     <div class="progress-track" id="i23-progress-track" style="display:none;"><div class="progress-fill-indeterminate"></div></div>
     <div id="i23-ai-status" class="hint"></div>
     <button type="button" class="btn btn-secondary" id="i23-ai-cancel" style="display:none;">Cancel</button>
@@ -309,7 +328,7 @@ export function buildPanel(container, ctx, apply) {
     const timer = setInterval(() => {
       const elapsed = Math.round((Date.now() - startTime) / 1000);
       let text = `${baseMsg} (${elapsed}s elapsed)`;
-      if (elapsed > 75) text += ' — generating both shape and texture can take a couple of minutes on the free tier; still working.';
+      if (elapsed > 60) text += ' — free-tier queue can take a while at busy times; still working.';
       aiStatusEl.textContent = text;
     }, 1000);
 
@@ -321,18 +340,18 @@ export function buildPanel(container, ctx, apply) {
     }
 
     try {
-      const arrayBuffer = await generateWithAITimed(
+      const { arrayBuffer, url } = await generateWithAITimed(
         sourceFile,
         { removeBackground: removeBgCheckbox.checked },
         setMsg
       );
       if (cancelled) return;
-      const group = await loadGlbArrayBuffer(arrayBuffer);
+      const group = await loadMeshFile(arrayBuffer, url);
       if (cancelled) return;
       normalizeScale(group);
       pendingGroup = group;
       ctx.preview(group, []);
-      aiStatusEl.textContent = 'Done! Tap "Use this model" below to continue, or generate again with different settings.';
+      aiStatusEl.textContent = 'Shape generated! No automatic texture from this Space right now (see note above) - tap "Use this model" then use the Texture tool to paint it, or generate again.';
       applyBtn.disabled = false;
     } catch (err) {
       if (!cancelled) {
