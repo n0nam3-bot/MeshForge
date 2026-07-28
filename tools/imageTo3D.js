@@ -41,17 +41,23 @@ const HARD_TIMEOUT_MS = GPU_BUDGET_MS + 60 * 1000; // + buffer for queueing/netw
 
 async function generateWithAI(imageFile, { removeBackground }, onStatus) {
   onStatus('Loading Hugging Face client library…');
-  const { Client } = await import('https://cdn.jsdelivr.net/npm/@gradio/client/dist/index.min.js');
+  const { Client, handle_file } = await import('https://cdn.jsdelivr.net/npm/@gradio/client/dist/index.min.js');
 
   onStatus(`Connecting to ${SPACE_ID} on Hugging Face…`);
   const app = await Client.connect(SPACE_ID);
 
   onStatus('Generating 3D shape (texture synthesis is currently unavailable on this Space - shape only)…');
   // Exact parameter names/order/defaults from the Space's own "Use via API"
-  // docs for /shape_generation - not a guess this time.
+  // docs for /shape_generation. IMPORTANT: file/image inputs must be wrapped
+  // with handle_file() - confirmed directly from @gradio/client's own npm
+  // docs. Passing the raw Blob/File directly (the previous version of this
+  // code) doesn't serialize into something the server recognizes as an
+  // image, which explains the earlier fast ~12s failure: the function got
+  // an effectively-empty image, failed validation immediately, and returned
+  // nothing - instead of running actual multi-second inference.
   const result = await app.predict('/shape_generation', [
-    null,            // caption
-    imageFile,       // image
+    null,                   // caption
+    handle_file(imageFile), // image
     null, null, null, null, // mv_image_front/back/left/right (unused, single-image mode)
     30,              // steps
     5,               // guidance_scale
@@ -65,7 +71,10 @@ async function generateWithAI(imageFile, { removeBackground }, onStatus) {
   // /shape_generation returns [filepath, html, stats, seed] - just one mesh file
   const fileInfo = result.data?.[0];
   const fileUrl = fileInfo?.url || fileInfo?.path;
-  if (!fileUrl) throw new Error('The model finished but no mesh file came back.');
+  if (!fileUrl) {
+    const raw = JSON.stringify(result.data)?.slice(0, 300) || String(result.data);
+    throw new Error(`The model finished but no mesh file came back. Raw response: ${raw}`);
+  }
 
   onStatus('Downloading result…');
   const res = await fetch(fileUrl);
