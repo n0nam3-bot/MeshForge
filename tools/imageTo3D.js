@@ -68,9 +68,16 @@ async function generateWithAI(imageFile, { removeBackground }, onStatus) {
     false,           // randomize_seed (fixed seed above, so re-generating is reproducible)
   ]);
 
-  // /shape_generation returns [filepath, html, stats, seed] - just one mesh file
+  // /shape_generation returns [filepath, html, stats, seed] - just one mesh file.
+  // Confirmed via the diagnostic raw-response output: the actual file data is
+  // nested one level deeper than expected, as {value: {path, url, ...}} -
+  // not {path, url, ...} directly. Checking both shapes defensively in case
+  // this varies. .url is preferred over .path since .path is a server-side
+  // filesystem location (e.g. /tmp/gradio/...), not something a browser can
+  // fetch() directly.
   const fileInfo = result.data?.[0];
-  const fileUrl = fileInfo?.url || fileInfo?.path;
+  const fileData = fileInfo?.value || fileInfo;
+  const fileUrl = fileData?.url || fileData?.path;
   if (!fileUrl) {
     const raw = JSON.stringify(result.data)?.slice(0, 300) || String(result.data);
     throw new Error(`The model finished but no mesh file came back. Raw response: ${raw}`);
