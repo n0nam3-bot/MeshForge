@@ -88,7 +88,7 @@ main { position: relative; z-index: 1; max-width: 720px; margin: 0 auto; padding
   overflow: hidden;
   border: 1px solid var(--line);
 }
-#viewer-canvas-wrap, #viewer-canvas { width: 100%; height: 100%; display: block; }
+#viewer-canvas-wrap, #viewer-canvas { width: 100%; height: 100%; display: block; touch-action: none; }
 
 .corner {
   position: absolute; width: 18px; height: 18px;
@@ -252,7 +252,7 @@ main { position: relative; z-index: 1; max-width: 720px; margin: 0 auto; padding
   .progress-fill-indeterminate { animation: none; left: 0; width: 100%; opacity: 0.5; }
 }
 
-.bone-list { max-height: 220px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; margin-bottom: 14px; }
+.bone-list { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; margin-bottom: 14px; }
 .bone-row { display: flex; align-items: center; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
 .bone-row:last-child { border-bottom: none; }
 

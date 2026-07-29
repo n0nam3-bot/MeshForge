@@ -94,7 +94,7 @@ Once all 14 files are committed:
 
 | Tool | Technique | Honest limitation |
 |---|---|---|
-| **Image → 3D** | Real AI generation via [tencent/Hunyuan3D-2](https://huggingface.co/spaces/tencent/Hunyuan3D-2) (a genuine neural image-to-3D model that generates shape *and* texture in one pass), called live from your browser via Hugging Face's free public API - no server of your own, no install. A hard 135-second client-side timeout (built around the Space's own documented 90-second GPU budget) means a stuck/overloaded request fails clearly instead of hanging forever. Falls back to a local distance-transform "inflate" if you're offline, out of patience, or the free service is briefly busy/down. | The AI path depends on a live third-party service - free, but can be slow, rate-limited, or occasionally down. See the honesty note in `tools/imageTo3D.js` for specifics. The offline fallback is a simple relief-extrusion, not true 3D inference. |
+| **Image → 3D** | Real AI shape generation via [tencent/Hunyuan3D-2](https://huggingface.co/spaces/tencent/Hunyuan3D-2)'s `/shape_generation` endpoint (a genuine neural image-to-3D model), called live from your browser via Hugging Face's free public API - no server of your own, no install. Endpoint/parameters verified directly against the Space's own auto-generated API docs, not inferred from source. A Fast/Standard/High quality selector trades generation time for mesh detail (steps + octree resolution). A ~3-minute hard client-side timeout means a stuck/overloaded request fails clearly instead of hanging forever. Falls back to a local distance-transform "inflate" if you're offline, out of patience, or the free service is briefly busy/down. | This Space's texture synthesis is currently disabled on Hugging Face's hosted instance, so the AI path returns shape only (no auto-texture) - use the Texture tool afterward to paint it. The AI path also depends on a live third-party service - free, but can be slow, rate-limited, or occasionally down. The offline fallback is a simple relief-extrusion, not true 3D inference. |
 | **UV Unwrap** | 6-direction box projection (inspired by [xatlas](https://github.com/repalash/xatlas-three)) | Can stretch on curved/organic surfaces; no atlas packing |
 | **Add Mesh (Repair)** | Vertex welding (three.js's own `mergeVertices`), degenerate-triangle removal, boundary-loop hole filling | Hole filling uses simple fan triangulation - works well on small, roughly-planar holes, not complex ones |
 | **Illumination** | Curvature/cavity-based AO approximation baked to vertex colors | Not true raycasted occlusion (skipped for mobile performance/dependency reasons) - a real approximation, not "AI lighting" |
@@ -138,15 +138,19 @@ you wire one in later if you want to go that route for a specific step.
 
 - "Back" is the in-app button, not your phone's hardware back button/gesture
   — the latter will just leave the page, same as on any other website.
-- Camera orbit/zoom is disabled while Texture, Jiggle, or Animation panels
-  are open, since dragging on the model does something else in each of
-  those. Close the panel to reposition the camera, then reopen it.
+- In Jiggle and Animation, dragging a bone's handle poses/tests it; dragging
+  empty space orbits the camera; a two-finger pinch (or mouse wheel) zooms -
+  all three work without fighting each other. Texture is different: every
+  drag there is a paint stroke, so camera orbit/zoom is unavailable while
+  that panel is open - close it to reposition the camera, then reopen.
 - Image → 3D's AI option needs an internet connection and depends on a free
   public Hugging Face Space staying up - it usually will, but if it's ever
   slow, rate-limited, or briefly down, use the offline fallback in the same
-  panel instead. Generating both shape and texture typically takes 30-90
-  seconds; if it hasn't finished within ~135 seconds, it automatically times
-  out with a clear error rather than hanging indefinitely.
+  panel instead. It generates shape only right now (texture synthesis is
+  disabled on this Space's current hosted instance) - use the Texture tool
+  afterward to paint it. Higher quality settings take longer; if generation
+  hasn't finished within ~3 minutes, it automatically times out with a
+  clear error rather than hanging indefinitely.
 - Undo/redo history and all model data live in memory only — nothing is
   saved automatically. Use **Save** whenever you want to keep a result.
   Refreshing the page always starts a clean session.
