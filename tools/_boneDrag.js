@@ -68,33 +68,98 @@ export function createBoneInteraction(ctx, skeleton, { onSelectBone, onDragBone,
   }
 
   let selectedBone = null;
-  let dragging = false;
+  let dragMode = null; // 'bone' | 'orbit' | null
   let lastX = 0, lastY = 0;
   const SENSITIVITY = 0.012; // radians per pixel
+  const activePointers = new Map(); // pointerId -> {x, y}, for pinch-zoom
+  let pinchStartDist = null;
 
-  // Disabled for the whole interaction session, not reactively inside
-  // onPointerDown - OrbitControls' own pointerdown listener was registered
-  // earlier (in app.js, before any tool panel exists), so it always runs
-  // first and would already be tracking a rotation drag by the time
-  // `enabled` flips reactively. Trade-off: the camera can't be orbited while
-  // this panel is open - close it to reposition the view, then reopen.
+  // OrbitControls stays fully disabled for the whole session (avoids the
+  // same registration-order race documented in texture.js: its pointerdown
+  // listener was registered back in app.js, before this panel existed, so
+  // it always runs first and would already be tracking a rotation drag by
+  // the time `enabled` flipped reactively). Rather than lose camera
+  // rotation/zoom entirely for the session (the earlier version of this
+  // file), this now reimplements both manually below - dragging a bone
+  // handle poses/tests it as before, dragging empty space orbits the
+  // camera, and a two-finger pinch zooms, so all three are available
+  // without any of them fighting over the same pointer events.
   controls.enabled = false;
 
+  // Manual spherical orbit around the same target OrbitControls was already
+  // using - verified in a sandbox check (distance-to-target preserved,
+  // camera continues looking at target after rotating). Reads/writes the
+  // real `controls.target`, so camera framing stays consistent with the
+  // rest of the app even though controls.update() itself isn't running
+  // during this session.
+  function manualOrbit(dx, dy) {
+    const target = controls.target;
+    const offset = new THREE.Vector3().subVectors(camera.position, target);
+    const spherical = new THREE.Spherical().setFromVector3(offset);
+    spherical.theta -= dx * SENSITIVITY;
+    spherical.phi = Math.max(0.02, Math.min(Math.PI - 0.02, spherical.phi - dy * SENSITIVITY));
+    offset.setFromSpherical(spherical);
+    camera.position.copy(target).add(offset);
+    camera.lookAt(target);
+  }
+
+  function manualZoom(scaleFactor) {
+    const target = controls.target;
+    const offset = new THREE.Vector3().subVectors(camera.position, target);
+    const newLength = Math.max(offset.length() * scaleFactor, 0.05);
+    offset.setLength(newLength);
+    camera.position.copy(target).add(offset);
+  }
+
+  function pointerDist() {
+    const pts = Array.from(activePointers.values());
+    return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+  }
+
   function onPointerDown(e) {
-    const bone = pickNearestBone(e.clientX, e.clientY);
-    if (!bone) return;
-    selectedBone = bone;
-    setSelected(bone);
-    dragging = true;
-    lastX = e.clientX; lastY = e.clientY;
-    onSelectBone?.(bone);
     e.preventDefault();
+    activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (activePointers.size === 2) {
+      // second finger just landed - switch to pinch-zoom, abandoning
+      // whatever single-finger drag (bone or orbit) was in progress
+      dragMode = 'pinch';
+      pinchStartDist = pointerDist();
+      return;
+    }
+    if (activePointers.size > 2) return; // ignore a third+ finger
+
+    const bone = pickNearestBone(e.clientX, e.clientY);
+    lastX = e.clientX; lastY = e.clientY;
+    if (bone) {
+      selectedBone = bone;
+      setSelected(bone);
+      dragMode = 'bone';
+      onSelectBone?.(bone);
+    } else {
+      dragMode = 'orbit';
+    }
   }
 
   function onPointerMove(e) {
-    if (!dragging || !selectedBone) return;
+    if (activePointers.has(e.pointerId)) activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (dragMode === 'pinch') {
+      if (activePointers.size < 2) return;
+      const dist = pointerDist();
+      if (pinchStartDist) manualZoom(pinchStartDist / dist);
+      pinchStartDist = dist;
+      return;
+    }
+
+    if (!dragMode) return;
     const dx = e.clientX - lastX, dy = e.clientY - lastY;
     lastX = e.clientX; lastY = e.clientY;
+
+    if (dragMode === 'orbit') {
+      manualOrbit(dx, dy);
+      return;
+    }
 
     const worldUp = new THREE.Vector3(0, 1, 0);
     const cameraRight = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
@@ -107,19 +172,30 @@ export function createBoneInteraction(ctx, skeleton, { onSelectBone, onDragBone,
     onDragBone?.(selectedBone, worldDelta, dx, dy);
   }
 
-  function onPointerUp() {
-    if (dragging) onDragEnd?.(selectedBone);
-    dragging = false;
+  function onPointerUp(e) {
+    activePointers.delete(e.pointerId);
+    if (activePointers.size < 2) pinchStartDist = null;
+    if (activePointers.size === 0) {
+      if (dragMode === 'bone') onDragEnd?.(selectedBone);
+      dragMode = null;
+    }
+  }
+
+  function onWheel(e) {
+    e.preventDefault();
+    manualZoom(1 + e.deltaY * 0.001);
   }
 
   canvasEl.addEventListener('pointerdown', onPointerDown);
   canvasEl.addEventListener('pointermove', onPointerMove);
   window.addEventListener('pointerup', onPointerUp);
+  canvasEl.addEventListener('wheel', onWheel, { passive: false });
 
   function dispose() {
     canvasEl.removeEventListener('pointerdown', onPointerDown);
     canvasEl.removeEventListener('pointermove', onPointerMove);
     window.removeEventListener('pointerup', onPointerUp);
+    canvasEl.removeEventListener('wheel', onWheel);
     controls.enabled = true;
     for (const [bone, handle] of handles) {
       bone.remove(handle);

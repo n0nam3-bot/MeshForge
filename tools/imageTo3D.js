@@ -37,9 +37,20 @@ export const meta = {
    ========================================================================= */
 const SPACE_ID = 'tencent/Hunyuan3D-2';
 const GPU_BUDGET_MS = 90 * 1000; // observed order-of-magnitude for this kind of ZeroGPU space; not documented for this exact endpoint, kept as a sane bound
-const HARD_TIMEOUT_MS = GPU_BUDGET_MS + 60 * 1000; // + buffer for queueing/network
+const HARD_TIMEOUT_MS = GPU_BUDGET_MS + 90 * 1000; // + extra buffer since High quality can genuinely take longer
 
-async function generateWithAI(imageFile, { removeBackground }, onStatus) {
+// Steps/resolution tradeoffs - the API's own bare defaults (steps=30,
+// octree_resolution=256) are the "fast" end of this range; bumped up for
+// Standard/High since the defaults alone produced visibly rough geometry
+// in testing (blocky surfaces, disconnected fragments).
+const QUALITY_PRESETS = {
+  fast: { steps: 20, octree_resolution: 256, num_chunks: 8000 },
+  standard: { steps: 40, octree_resolution: 384, num_chunks: 8000 },
+  high: { steps: 50, octree_resolution: 512, num_chunks: 8000 },
+};
+
+async function generateWithAI(imageFile, { removeBackground, quality }, onStatus) {
+  const preset = QUALITY_PRESETS[quality] || QUALITY_PRESETS.standard;
   onStatus('Loading Hugging Face client library…');
   const { Client, handle_file } = await import('https://cdn.jsdelivr.net/npm/@gradio/client/dist/index.min.js');
 
@@ -59,12 +70,12 @@ async function generateWithAI(imageFile, { removeBackground }, onStatus) {
     null,                   // caption
     handle_file(imageFile), // image
     null, null, null, null, // mv_image_front/back/left/right (unused, single-image mode)
-    30,              // steps
+    preset.steps,
     5,               // guidance_scale
     1234,            // seed
-    256,             // octree_resolution
+    preset.octree_resolution,
     removeBackground, // check_box_rembg
-    8000,            // num_chunks
+    preset.num_chunks,
     false,           // randomize_seed (fixed seed above, so re-generating is reproducible)
   ]);
 
@@ -249,6 +260,14 @@ export function buildPanel(container, ctx, apply) {
     <img id="i23-preview" style="display:none;max-width:100%;border-radius:8px;margin-top:10px;border:1px solid var(--line);" />
 
     <div class="checkbox-row" style="margin-top:16px;"><input type="checkbox" id="i23-removebg" checked><label for="i23-removebg">Remove background automatically</label></div>
+    <div class="field">
+      <label>Quality</label>
+      <select id="i23-quality">
+        <option value="fast">Fast (~30-60s, lower detail)</option>
+        <option value="standard" selected>Standard (~60-100s, balanced)</option>
+        <option value="high">High (~90-150s, most detail, more likely to time out when busy)</option>
+      </select>
+    </div>
     <p class="hint">Generates real AI shape geometry. This Space's texture synthesis is currently unavailable, so the result comes back untextured - use the Texture tool afterward to paint it.</p>
     <button type="button" class="btn btn-primary" id="i23-ai-generate" disabled>Generate Shape with AI (Hunyuan3D-2, via Hugging Face)</button>
     <div class="progress-track" id="i23-progress-track" style="display:none;"><div class="progress-fill-indeterminate"></div></div>
@@ -285,6 +304,7 @@ export function buildPanel(container, ctx, apply) {
   const chooseBtn = container.querySelector('#i23-choose');
   const previewImg = container.querySelector('#i23-preview');
   const removeBgCheckbox = container.querySelector('#i23-removebg');
+  const qualitySelect = container.querySelector('#i23-quality');
   const aiGenerateBtn = container.querySelector('#i23-ai-generate');
   const aiStatusEl = container.querySelector('#i23-ai-status');
   const progressTrack = container.querySelector('#i23-progress-track');
@@ -358,7 +378,7 @@ export function buildPanel(container, ctx, apply) {
     try {
       const { arrayBuffer, url } = await generateWithAITimed(
         sourceFile,
-        { removeBackground: removeBgCheckbox.checked },
+        { removeBackground: removeBgCheckbox.checked, quality: qualitySelect.value },
         setMsg
       );
       if (cancelled) return;
